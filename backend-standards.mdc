@@ -1,0 +1,21 @@
+---
+description: Backend and Bot specific development standards.
+globs: "src/**/*.ts"
+---
+# Backend & Bot Standards
+
+## Technology Stack
+- **Runtime**: Node.js (Latest LTS)
+- **Language**: TypeScript
+- **Library**: Discord.js (if applicable)
+- **Testing**: Vitest or Jest
+
+## Patterns
+- **Command Pattern**: Separate each bot command into its own class or file.
+- **Event Handling**: Use a dedicated event handler to decouple discord events from business logic.
+- **Dependency Injection**: Use simple DI patterns to make services testable.
+
+## Error Handling
+- Never let the bot process crash. Use try-catch blocks in command executors.
+- Log errors with context (User ID, Command name, Guild ID).
+- Provide user-friendly error messages in Discord interactions.
