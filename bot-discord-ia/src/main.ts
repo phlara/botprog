@@ -12,8 +12,16 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const PREFIX = '!';
 const PORT = process.env.PORT || 3000;
 
+if (!TOKEN) {
+  console.error('CRITICAL: DISCORD_TOKEN no está definido en las variables de entorno.');
+  process.exit(1);
+}
+if (!GROQ_API_KEY || GROQ_API_KEY === 'tu_api_key_de_groq_aqui') {
+  console.warn('AVISO: GROQ_API_KEY no está configurada. La IA no responderá hasta que la definas en Render.');
+}
+
 // Initialize IA SDK
-const groq = new Groq({ apiKey: GROQ_API_KEY });
+const groq = new Groq({ apiKey: GROQ_API_KEY || 'dummy_key' });
 
 // Configuración de Memoria de corto plazo
 interface ChatContext { role: 'user' | 'assistant' | 'system'; content: string }
@@ -92,10 +100,20 @@ client.once(Events.ClientReady, (c) => {
   client.user?.setActivity('Clases de Programación', { type: ActivityType.Watching });
 });
 
+client.on(Events.Error, (err) => console.error('Discord client error:', err));
+client.on(Events.Warn, (info) => console.warn('Discord client warn:', info));
+
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return; // Ignorar mensajes de otros bots (incluido el propio)
 
   const content = message.content.trim();
+  console.log(`[msg] #${(message.channel as any).name ?? message.channel.id} <${message.author.tag}>: "${content}" (len=${content.length})`);
+
+  // Si el contenido viene vacío, casi siempre es porque el intent privilegiado
+  // "MESSAGE CONTENT INTENT" no está activado en el Discord Developer Portal.
+  if (!content && !message.author.bot) {
+    console.warn('Mensaje recibido SIN contenido. Verifica que "MESSAGE CONTENT INTENT" esté activado en https://discord.com/developers/applications');
+  }
   
   // Caso A: El mensaje empieza con el prefijo (Comandos manuales)
   if (content.startsWith(PREFIX)) {
@@ -103,7 +121,12 @@ client.on('messageCreate', async (message) => {
     const commandName = args.shift()?.toLowerCase() || '';
 
     if (commands[commandName]) {
-      await commands[commandName](message, args);
+      try {
+        await commands[commandName](message, args);
+      } catch (err) {
+        console.error(`Error ejecutando comando "${commandName}":`, err);
+        await message.reply('Hubo un error ejecutando ese comando.').catch(() => {});
+      }
     } else {
       await message.reply('Comando desconocido. Usa `!help` para ver los comandos disponibles.');
     }
@@ -112,40 +135,48 @@ client.on('messageCreate', async (message) => {
 
   // Caso B: Conversación natural (IA Groq)
   if (content.length > 2) {
-    if (!GROQ_API_KEY) return void message.reply('La IA no está configurada (falta GROQ_API_KEY).');
+    if (!GROQ_API_KEY || GROQ_API_KEY === 'tu_api_key_de_groq_aqui') {
+      await message.reply('La IA no está configurada (falta GROQ_API_KEY en el servidor).');
+      return;
+    }
 
     try {
       await message.channel.sendTyping();
-      
+
       // Obtener historial o inicializarlo
       const history = conversationMemory.get(message.channel.id) || [];
       history.push({ role: 'user', content: content });
 
-      const completion = await groq.chat.completions.create({ 
+      const completion = await groq.chat.completions.create({
         messages: [
-          { 
-            role: 'system', 
-            content: 'Eres un experto profesor de programación. Tu ÚNICO objetivo es ayudar con dudas de código, algoritmos y desarrollo de software. Si el usuario pregunta algo ajeno a la programación, responde amablemente que solo puedes ayudar con temas técnicos de programación. Responde de forma concisa en español.' 
+          {
+            role: 'system',
+            content: 'Eres un experto profesor de programación. Tu ÚNICO objetivo es ayudar con dudas de código, algoritmos y desarrollo de software. Si el usuario pregunta algo ajeno a la programación, responde amablemente que solo puedes ayudar con temas técnicos de programación. Responde de forma concisa en español.'
           },
-          ...history 
-        ], 
-        model: 'llama3-8b-8192' 
+          ...history
+        ],
+        model: 'llama-3.1-8b-instant'
       });
 
       const assistantResponse = completion.choices[0]?.message?.content || 'No pude generar una respuesta para tu pregunta.';
-      
+
       // Save the response to history
       history.push({ role: 'assistant', content: assistantResponse });
 
       // Keep history within limits to avoid context window issues
-      if (history.length > MAX_HISTORY) history.splice(0, 2); 
+      if (history.length > MAX_HISTORY) history.splice(0, 2);
       conversationMemory.set(message.channel.id, history);
 
       await message.reply(assistantResponse);
-    } catch (error) {
-      await message.reply('Lo siento, tuve un problema al procesar tu pregunta.');
+    } catch (error: any) {
+      console.error('Error llamando a Groq:', error?.status, error?.message, error?.error ?? '');
+      await message.reply('Lo siento, tuve un problema al procesar tu pregunta. Revisa los logs del servidor.');
     }
   }
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
 });
 
 // 4. Health Check for Render
