@@ -1,22 +1,68 @@
 # Discord IA Programming Bot
 
-Este proyecto es un bot de Discord asistido por IA, enfocado exclusivamente en responder sobre clases de programación. El bot permite:
+Bot de Discord asistido por IA, enfocado en responder dudas de **programación**.
 
-- Consultar temas de clases de programación.
-- Agregar o actualizar información de clases.
-- Integrar IA para respuestas inteligentes (listo para OpenAI u otros modelos).
+## ¿Qué hace?
+- Responde preguntas técnicas con IA (Groq + Llama 3.1) recordando el contexto de los últimos turnos por canal.
+- Soporta comandos manuales:
+  - `!help` — muestra los comandos y los temas guardados.
+  - `!class <tema>` — devuelve el contenido de una clase guardada en `data/<tema>.md`.
+  - `!addclass <tema> <contenido>` — guarda una nueva clase (solo administradores).
+- Funciona tanto en canales del servidor como en mensajes directos (DMs).
 
-## Estructura
-- `bot/` — Código fuente del bot.
-- `data/` — Archivos con información de clases de programación.
-- `requirements.txt` — Dependencias Python.
-- `README.md` — Esta documentación.
+## Stack
+- Node.js + TypeScript
+- [discord.js](https://discord.js.org/) v14
+- [groq-sdk](https://www.npmjs.com/package/groq-sdk)
+- Express (mini servidor para el health check de Render)
 
-## Instalación rápida
-1. Instala dependencias: `pip install -r requirements.txt`
-2. Configura tu token de Discord en `.env`
-3. Ejecuta el bot: `python bot/main.py`
+## Instalación
+```bash
+npm install
+cp .env.example .env  # y edita el .env con tus tokens reales
+```
 
-## Lineamientos
-- Todo el código y documentación en inglés.
-- Seguir buenas prácticas de ai-specs.
+## Ejecutar
+```bash
+# Desarrollo (recarga automática con ts-node):
+npm run dev
+
+# Producción (compila y ejecuta):
+npm run build
+npm start
+```
+
+## Variables de entorno (`.env`)
+```
+DISCORD_TOKEN=tu_token_de_discord
+GROQ_API_KEY=tu_api_key_de_groq
+PORT=3000
+```
+
+- `DISCORD_TOKEN`: lo obtienes en https://discord.com/developers/applications → tu app → Bot → **Reset Token**.
+- `GROQ_API_KEY`: lo obtienes en https://console.groq.com/keys.
+
+## Configuración importante en Discord
+En el Developer Portal, dentro de **Bot → Privileged Gateway Intents**, debe estar
+activado **MESSAGE CONTENT INTENT**. Sin eso, el bot no podrá leer el texto de los
+mensajes y todo quedará en silencio.
+
+## Estructura del proyecto
+```
+bot-discord-ia/
+├── src/
+│   └── main.ts          # Punto de entrada (comentado paso a paso).
+├── data/                # Archivos .md con el contenido de las clases.
+├── dist/                # Salida compilada (se genera con `npm run build`).
+├── .env                 # Secretos locales (NO se sube a Git).
+├── .env.example         # Plantilla del .env.
+├── tsconfig.json
+└── package.json
+```
+
+## Despliegue en Render
+1. Crea un servicio de tipo **Web Service** apuntando al repo.
+2. Build command: `npm install && npm run build`
+3. Start command: `npm start`
+4. Define las variables de entorno (`DISCORD_TOKEN`, `GROQ_API_KEY`) en el dashboard.
+5. (Opcional) Configura un servicio tipo UptimeRobot para hacer ping al `/` y evitar que Render duerma el servicio en plan free.
