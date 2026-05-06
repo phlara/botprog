@@ -63,24 +63,6 @@ const commands: Record<string, (message: Message, args: string[]) => Promise<voi
     }
   },
 
-  ask: async (message, args) => {
-    const question = args.join(' ');
-    if (!question) {
-      await message.reply('Uso: !ask <tu pregunta>');
-      return;
-    }
-
-    try {
-      const completion = await groq.chat.completions.create({
-        messages: [{ role: 'user', content: question }],
-        model: 'llama3-8b-8192',
-      });
-      await message.reply(completion.choices[0]?.message?.content || 'No obtuve respuesta.');
-    } catch (error) {
-      await message.reply('Error al conectar con la IA.');
-    }
-  },
-
   addclass: async (message, args) => {
     if (!message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
       await message.reply('No tienes permiso para agregar clases.');
@@ -101,14 +83,37 @@ const commands: Record<string, (message: Message, args: string[]) => Promise<voi
 client.once('ready', () => {
   console.log(`Bot listo: ${client.user?.tag}`);
   // This makes the bot look "active" in the sidebar
-  client.user?.setActivity('Clases de Programación', { type: ActivityType.Watching });
+  client.user?.setActivity('Clases de Programación', { type: ActivityType.Watching }); // Puedes cambiar el mensaje aquí
 });
 
 client.on('messageCreate', async (message) => {
-  if (message.author.bot || !message.content.startsWith(PREFIX)) return;
-  const args = message.content.slice(PREFIX.length).trim().split(/ +/);
-  const command = args.shift()?.toLowerCase() || '';
-  if (commands[command]) await commands[command](message, args);
+  if (message.author.bot) return; // Ignorar mensajes de otros bots (incluido el propio)
+
+  const content = message.content.trim();
+
+  if (content.startsWith(PREFIX)) {
+    // Es un comando explícito (ej. !help, !class)
+    const args = content.slice(PREFIX.length).split(/ +/);
+    const commandName = args.shift()?.toLowerCase() || '';
+
+    if (commands[commandName]) {
+      await commandscommandName;
+    } else {
+      await message.reply('Comando desconocido. Usa `!help` para ver los comandos disponibles.');
+    }
+  } else {
+    // Es un mensaje general, tratarlo como una pregunta para la IA
+    if (content.length < 3) return; // Ignorar mensajes muy cortos para evitar spam
+    if (!GROQ_API_KEY) return void message.reply('La IA no está configurada (falta GROQ_API_KEY).');
+
+    try {
+      const completion = await groq.chat.completions.create({ messages: [{ role: 'system', content: 'Eres un experto profesor de programación. Responde de forma concisa en español.' }, { role: 'user', content: content }], model: 'llama3-8b-8192' });
+      await message.reply(completion.choices[0]?.message?.content || 'No obtuve respuesta de la IA.');
+    } catch (error) {
+      console.error('Error al consultar a la IA:', error);
+      await message.reply('Lo siento, tuve un problema al procesar tu pregunta con la IA.');
+    }
+  }
 });
 
 // 4. Health Check for Render
@@ -116,4 +121,8 @@ const app = express();
 app.get('/', (_, res) => res.send('Bot Online'));
 app.listen(PORT, () => console.log(`Puerto ${PORT} abierto`));
 
-client.login(TOKEN);
+client.login(TOKEN).catch(error => {
+  console.error('CRITICAL ERROR: Failed to login to Discord.');
+  console.error(error.message);
+  process.exit(1);
+});
