@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Message, ActivityType, PermissionFlagsBits, Events } from 'discord.js';
+import { Client, GatewayIntentBits, Message, ActivityType, PermissionFlagsBits, Events, Partials } from 'discord.js';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -33,8 +33,11 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
   ],
+  // Los DMs llegan como canales parciales; sin esto, messageCreate no dispara para DMs.
+  partials: [Partials.Channel, Partials.Message],
 });
 
 // 2. Command Handlers
