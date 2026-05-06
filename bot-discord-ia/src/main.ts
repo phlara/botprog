@@ -98,27 +98,23 @@ const commands: Record<string, (message: Message, args: string[]) => Promise<voi
     // __dirname apunta a donde se ejecuta el archivo compilado (dist/),
     // por eso subimos un nivel para llegar a la carpeta /data.
     const dataDir = path.join(__dirname, '../data');
-
-    // Si la carpeta data no existe o está vacía, avisamos.
-    if (!fs.existsSync(dataDir) || fs.readdirSync(dataDir).length === 0) {
-      await message.reply('No hay temas registrados todavía.');
-      return;
-    }
-
-    // Leemos los archivos .md de la carpeta y nos quedamos solo con el nombre del tema.
-    const files = fs.readdirSync(dataDir).filter(file => file.endsWith('.md'));
+    const files = fs.existsSync(dataDir)
+      ? fs.readdirSync(dataDir).filter(file => file.endsWith('.md'))
+      : [];
     const topics = files.map(file => file.replace('.md', '')).join(', ');
 
     // Mensaje de ayuda. El \` activa el formato de código en Discord.
-    const response = `**Comandos disponibles:**\n` +
-      `- \`!class <tema>\`: Ver contenido de una clase guardada.\n` +
-      `- \`!addclass <tema> <contenido>\`: Agregar nuevo tema (Solo Admin).\n` +
+    const response =
+      `**Soy un bot de ayuda con C#** 🧑‍🏫\n\n` +
+      `**Comandos:**\n` +
+      `- \`!class <tema>\`: Ver una clase guardada (si hay).\n` +
+      `- \`!addclass <tema> <contenido>\`: Agregar tema (solo Admin).\n` +
       `- \`!help\`: Ver esta lista.\n\n` +
-      `**Cómo hablar con la IA:**\n` +
+      `**Cómo preguntarle a la IA:**\n` +
       `- Mándame un **DM** (mensaje privado), o\n` +
       `- Escribe en un canal cuyo nombre contenga "bot" (ej: #charla-bot), o\n` +
       `- Mencióname con **@Programming Bot** en cualquier canal.\n\n` +
-      `**Temas en biblioteca:** ${topics || 'Ninguno'}`;
+      `**Temas guardados:** ${topics || 'Ninguno'}`;
 
     await message.reply(response);
   },
@@ -173,8 +169,8 @@ const commands: Record<string, (message: Message, args: string[]) => Promise<voi
 // Se dispara UNA sola vez cuando el bot ya está conectado y autenticado.
 client.once(Events.ClientReady, (c) => {
   console.log(`Bot listo: ${client.user?.tag}`);
-  // Cambia el estado del bot para que se vea "Viendo Clases de Programación".
-  client.user?.setActivity('Clases de Programación', { type: ActivityType.Watching });
+  // Cambia el estado del bot para que se vea "Viendo Clases de C#".
+  client.user?.setActivity('Clases de C#', { type: ActivityType.Watching });
 });
 
 // Logs de errores y warnings de la conexión a Discord (útiles para debug en Render).
@@ -266,11 +262,21 @@ client.on('messageCreate', async (message) => {
         {
           role: 'system',
           content:
-            'Eres un experto profesor de programación. Tu ÚNICO objetivo es ayudar ' +
-            'con dudas de código, algoritmos y desarrollo de software. Si el usuario ' +
-            'pregunta algo ajeno a la programación, responde amablemente que solo ' +
-            'puedes ayudar con temas técnicos de programación. Responde de forma ' +
-            'concisa en español.',
+            'Eres un asistente de C# (.NET) para estudiantes universitarios de primer ' +
+            'año de programación.\n\n' +
+            'REGLAS ESTRICTAS:\n' +
+            '1. Solo respondes preguntas sobre C# y .NET (sintaxis, conceptos, POO, ' +
+            'colecciones, LINQ, async, ejercicios típicos de cátedra).\n' +
+            '2. Si te preguntan sobre otro lenguaje (Python, Java, JS, etc.), responde ' +
+            'amablemente que solo ayudas con C# y, si tiene sentido, da el equivalente en C#.\n' +
+            '3. Si te preguntan algo ajeno a la programación, di amablemente que solo ' +
+            'ayudas con C#.\n' +
+            '4. Respuestas CORTAS y SIMPLES: máximo 5-6 oraciones de explicación. ' +
+            'Si el tema necesita código, agrega UN solo ejemplo claro y mínimo en un ' +
+            'bloque ```csharp.\n' +
+            '5. Tono didáctico y cercano, en español rioplatense neutro. Sin jerga ' +
+            'innecesaria. Sin introducciones largas tipo "claro, con gusto te explico...".\n' +
+            '6. Nunca excedas los 1800 caracteres en total.',
         },
         ...history, // Adjuntamos el historial para que recuerde el contexto.
       ],
