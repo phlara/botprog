@@ -150,7 +150,10 @@ client.on('messageCreate', async (message) => {
 
 // 4. Health Check for Render
 const app = express();
-app.get('/', (_, res) => res.send('Bot Online'));
+app.get('/', (_, res) => {
+  console.log('Ping de mantenimiento recibido: Manteniendo el bot despierto.');
+  res.send('Bot Online');
+});
 app.listen(PORT, () => console.log(`Puerto ${PORT} abierto`));
 
 client.login(TOKEN).catch(error => {
