@@ -114,8 +114,10 @@ const commands: Record<string, (message: Message, args: string[]) => Promise<voi
       `- \`!class <tema>\`: Ver contenido de una clase guardada.\n` +
       `- \`!addclass <tema> <contenido>\`: Agregar nuevo tema (Solo Admin).\n` +
       `- \`!help\`: Ver esta lista.\n\n` +
-      `**O simplemente háblame:**\n` +
-      `Si me preguntas algo sobre programación, te responderé usando mi IA. 🤖\n\n` +
+      `**Cómo hablar con la IA:**\n` +
+      `- Mándame un **DM** (mensaje privado), o\n` +
+      `- Escribe en un canal cuyo nombre contenga "bot" (ej: #charla-bot), o\n` +
+      `- Mencióname con **@Programming Bot** en cualquier canal.\n\n` +
       `**Temas en biblioteca:** ${topics || 'Ninguno'}`;
 
     await message.reply(response);
@@ -193,11 +195,8 @@ client.on('messageCreate', async (message) => {
     `<${message.author.tag}>: "${content}" (len=${content.length})`
   );
 
-  // Si llega un mensaje SIN contenido, casi siempre es porque el intent privilegiado
-  // "MESSAGE CONTENT INTENT" está apagado en el Discord Developer Portal.
-  if (!content && !message.author.bot) {
-    console.warn('Mensaje recibido SIN contenido. Verifica MESSAGE CONTENT INTENT en https://discord.com/developers/applications');
-  }
+  // Mensajes vacíos suelen ser stickers/adjuntos sin texto, los ignoramos.
+  if (!content) return;
 
   // ----- Caso A: el mensaje empieza con "!" → es un comando manual -----
   if (content.startsWith(PREFIX)) {
@@ -223,63 +222,110 @@ client.on('messageCreate', async (message) => {
 
   // ----- Caso B: texto normal → preguntamos a la IA de Groq -----
   // Filtro mínimo: ignoramos mensajes muy cortos ("ok", "x") para no spamear la IA.
-  if (content.length > 2) {
+  if (content.length <= 2) return;
 
-    // Si no hay API key configurada, avisamos en lugar de fallar silenciosamente.
-    if (!GROQ_API_KEY || GROQ_API_KEY === 'tu_api_key_de_groq_aqui') {
-      await message.reply('La IA no está configurada (falta GROQ_API_KEY en el servidor).');
-      return;
-    }
+  // ----- Filtro de canales para no spamear el servidor -----
+  // En DMs siempre respondemos. En canales del servidor solo si:
+  //   (a) nos mencionan explícitamente con @bot, O
+  //   (b) el canal tiene la palabra "bot" en el nombre (ej: #charla-bot).
+  // Así la gente puede seguir conversando en #general sin que el bot se meta.
+  const isDm = !message.guild;
+  const wasMentioned = client.user ? message.mentions.has(client.user) : false;
+  const channelName = ((message.channel as any).name ?? '').toLowerCase();
+  const isBotChannel = channelName.includes('bot');
 
-    try {
-      // Indicador "está escribiendo..." para que el usuario sepa que estamos pensando.
-      await message.channel.sendTyping();
+  if (!isDm && !wasMentioned && !isBotChannel) return;
 
-      // Recuperamos el historial de ESTE canal (o lista vacía si es la primera).
-      const history = conversationMemory.get(message.channel.id) || [];
-      history.push({ role: 'user', content: content });
+  // Si nos mencionaron, le quitamos la mención al texto para que la IA reciba
+  // solo la pregunta limpia (sin el "<@123456...>" que mete Discord).
+  const cleanContent = wasMentioned && client.user
+    ? content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim()
+    : content;
 
-      // Llamada al modelo de IA. La estructura es la estándar de OpenAI/Groq:
-      //  - system: instrucciones de "personalidad" (qué debe hacer y qué no).
-      //  - user/assistant: turnos de conversación intercalados.
-      const completion = await groq.chat.completions.create({
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Eres un experto profesor de programación. Tu ÚNICO objetivo es ayudar ' +
-              'con dudas de código, algoritmos y desarrollo de software. Si el usuario ' +
-              'pregunta algo ajeno a la programación, responde amablemente que solo ' +
-              'puedes ayudar con temas técnicos de programación. Responde de forma ' +
-              'concisa en español.',
-          },
-          ...history, // Adjuntamos el historial para que recuerde el contexto.
-        ],
-        model: 'llama-3.1-8b-instant', // Modelo gratuito y rápido de Groq.
-      });
+  if (cleanContent.length === 0) return; // si solo nos mencionaron sin texto, ignoramos.
 
-      // Tomamos la primera respuesta del modelo. Si por algo viene vacía, fallback.
-      const assistantResponse =
-        completion.choices[0]?.message?.content ||
-        'No pude generar una respuesta para tu pregunta.';
+  // Si no hay API key configurada, avisamos en lugar de fallar silenciosamente.
+  if (!GROQ_API_KEY || GROQ_API_KEY === 'tu_api_key_de_groq_aqui') {
+    await message.reply('La IA no está configurada (falta GROQ_API_KEY en el servidor).');
+    return;
+  }
 
-      // Guardamos la respuesta del bot al historial para mantener la coherencia.
-      history.push({ role: 'assistant', content: assistantResponse });
+  try {
+    // Indicador "está escribiendo..." para que el usuario sepa que estamos pensando.
+    await message.channel.sendTyping();
 
-      // Recortamos el historial: borramos los 2 mensajes más viejos (1 user + 1 bot)
-      // cuando se pasa del límite. Así la conversación "rueda" sin crecer infinito.
-      if (history.length > MAX_HISTORY) history.splice(0, 2);
-      conversationMemory.set(message.channel.id, history);
+    // Recuperamos el historial de ESTE canal (o lista vacía si es la primera).
+    const history = conversationMemory.get(message.channel.id) || [];
+    history.push({ role: 'user', content: cleanContent });
 
-      await message.reply(assistantResponse);
-    } catch (error: any) {
-      // Logueamos el error completo en consola (Render lo verá),
-      // pero al usuario solo le mandamos un mensaje amigable.
-      console.error('Error llamando a Groq:', error?.status, error?.message, error?.error ?? '');
-      await message.reply('Lo siento, tuve un problema al procesar tu pregunta. Revisa los logs del servidor.');
-    }
+    // Llamada al modelo de IA. La estructura es la estándar de OpenAI/Groq:
+    //  - system: instrucciones de "personalidad" (qué debe hacer y qué no).
+    //  - user/assistant: turnos de conversación intercalados.
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Eres un experto profesor de programación. Tu ÚNICO objetivo es ayudar ' +
+            'con dudas de código, algoritmos y desarrollo de software. Si el usuario ' +
+            'pregunta algo ajeno a la programación, responde amablemente que solo ' +
+            'puedes ayudar con temas técnicos de programación. Responde de forma ' +
+            'concisa en español.',
+        },
+        ...history, // Adjuntamos el historial para que recuerde el contexto.
+      ],
+      model: 'llama-3.1-8b-instant', // Modelo gratuito y rápido de Groq.
+    });
+
+    // Tomamos la primera respuesta del modelo. Si por algo viene vacía, fallback.
+    const assistantResponse =
+      completion.choices[0]?.message?.content ||
+      'No pude generar una respuesta para tu pregunta.';
+
+    // Guardamos la respuesta del bot al historial para mantener la coherencia.
+    history.push({ role: 'assistant', content: assistantResponse });
+
+    // Recortamos el historial: borramos los 2 mensajes más viejos (1 user + 1 bot)
+    // cuando se pasa del límite. Así la conversación "rueda" sin crecer infinito.
+    if (history.length > MAX_HISTORY) history.splice(0, 2);
+    conversationMemory.set(message.channel.id, history);
+
+    // Discord rechaza mensajes >2000 chars. Partimos en chunks respetando saltos
+    // de línea para no cortar a la mitad un bloque de código.
+    await sendChunked(message, assistantResponse);
+  } catch (error: any) {
+    // Logueamos el error completo en consola (Render lo verá),
+    // pero al usuario solo le mandamos un mensaje amigable.
+    console.error('Error llamando a Groq:', error?.status, error?.message, error?.error ?? '');
+    await message.reply('Lo siento, tuve un problema al procesar tu pregunta. Revisa los logs del servidor.');
   }
 });
+
+/**
+ * Envía un texto largo respetando el límite de 2000 caracteres de Discord.
+ * Parte en bloques de ~1900, prefiriendo cortar en saltos de línea para no
+ * romper un bloque de código a la mitad. La primera parte usa reply (notifica
+ * al usuario), las siguientes van como mensajes normales para no re-pingear.
+ */
+async function sendChunked(message: Message, text: string) {
+  const MAX = 1900;
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > MAX) {
+    // Buscamos un salto de línea cerca del límite para cortar "limpio".
+    let cutAt = remaining.lastIndexOf('\n', MAX);
+    if (cutAt < MAX * 0.5) cutAt = MAX; // si no hay newline cerca, cortamos duro.
+    chunks.push(remaining.slice(0, cutAt));
+    remaining = remaining.slice(cutAt).trimStart();
+  }
+  if (remaining.length > 0) chunks.push(remaining);
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (i === 0) await message.reply(chunks[i]);
+    else await (message.channel as any).send(chunks[i]);
+  }
+}
 
 // Captura de seguridad: cualquier promesa rechazada que no manejamos manualmente
 // se loguea en lugar de tirar el proceso silenciosamente.
